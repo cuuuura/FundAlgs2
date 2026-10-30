@@ -1,0 +1,169 @@
+Tests prog1:
+
+-l:
+
+$ ./prog1.out -l hello
+5
+
+$ ./prog1.out -l ''
+0
+
+$ ./prog1.out -l 'Hello, world!'
+13
+
+-r:
+
+$ ./prog1.out -r hello
+olleh
+
+$ ./prog1.out -r 'a b c'
+c b a
+
+$ ./prog1.out -r ''
+(пустая строка)
+
+-u:
+$ ./prog1.out -u abcdef
+aBcDeF
+
+$ ./prog1.out -u Hello
+HElLo
+
+$ ./prog1.out -u 'a1b2c3'
+a1b2c3
+
+-n:
+$ ./prog1.out -n 'a1b2c3!@#'
+123abc!@#
+
+$ ./prog1.out -n 'xyz'
+xyz
+
+$ ./prog1.out -n '123'
+123
+
+$ ./prog1.out -n '!@#abc123'
+123abc!@#
+
+-c:
+$ ./prog1.out -c 42 foo bar baz
+(какая-то перестановка foo/bar/baz, длина 9)
+
+$ ./prog1.out -c 42 foo bar baz
+(тот же результат, что и в прошлый раз — seed 42)
+
+$ ./prog1.out -c 42 solo
+solo
+
+$ ./prog1.out -c 42 x
+x
+
+Ошибки:
+$ ./prog1.out
+$ ./prog1.out -x hello
+$ ./prog1.out -c
+$ ./prog1.out -c abc foo
+$ ./prog1.out -c -1 foo
+
+Tests prog2:
+
+$ ./prog2.out in1.txt -a out_a.txt
+
+out_a.txt:
+1 Ivan Ivanov 5000.50
+4 Oleg Ivanov 5000.50
+2 Petr Petrov 5000.50
+3 Anna Smirnova 7000.00
+
+$ ./prog2.out in1.txt -d out_d.txt
+
+out_d.txt:
+3 Anna Smirnova 7000.00
+2 Petr Petrov 5000.50
+4 Oleg Ivanov 5000.50
+1 Ivan Ivanov 5000.50
+
+$ ./prog2.out empty.txt -a out_empty.txt
+
+out.txt:
+(пустой файл)
+
+$ ./prog2.out one.txt -a out_one.txt
+
+out_one.txt:
+7 Solo Name 100.00
+
+Ошибки:
+$ ./prog2.out in1.txt a  out.txt    
+$ ./prog2.out in1.txt -x out.txt    
+$ ./prog2.out in1.txt -aa out.txt     
+$ ./prog2.out missing.txt -a out.txt   
+$ ./prog2.out in1.txt -a  
+
+Tests prog3:
+
+$ ./prog3.out "hello" f1.txt f2.txt f3.txt
+
+Substring: "hello"
+Total occurrences: 2
+  f1.txt: 2
+  f2.txt: 0
+  f3.txt: 0
+
+$ ./prog3.out "aa" f4.txt f4.txt f4.txt
+
+Substring: "aa"
+Total occurrences: 12
+  f4.txt: 4
+  f4.txt: 4
+  f4.txt: 4
+
+Ошибки:
+$ ./prog3.out "x" missing.txt f1.txt f1.txt
+$ ./prog3.out
+$ ./prog3.out "x" f1.txt
+
+Tests prog4:
+
+$ ./prog4.out
+
+3 10
+file1 5 10
+file2 6 15
+file3 4 8
+
+TOTAL_SIZE 10 TOTAL_IMPORTANCE 23 FILES 2
+file2
+file3
+
+$ ./prog4.out
+
+2 5
+big1 10 100
+big2 6 50
+
+TOTAL_SIZE 0 TOTAL_IMPORTANCE 0 FILES 0
+
+$ ./prog4.out
+
+2 0
+a 1 10
+b 2 20
+
+TOTAL_SIZE 0 TOTAL_IMPORTANCE 0 FILES 0
+
+$ ./prog4.out
+
+2 10
+first 5 10
+second 5 10
+
+TOTAL_SIZE 5 TOTAL_IMPORTANCE 10 FILES 1
+first
+
+$ ./prog4.out
+
+1 10
+file1 5 10 abc
+
+Error: invalid file line 1
