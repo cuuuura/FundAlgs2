@@ -116,7 +116,7 @@ static Status find_occurrences(const char *text, size_t text_len, const char *pa
                 }
                 current_pos++;
             }
-
+            current_line = l;
             matches[count].line_num = l;
             matches[count].col_num = i - line_start_pos + 1;
             count++;
@@ -159,7 +159,6 @@ Status search_in_files(const char *substr, int nfiles, size_t *out_total, size_t
     for (int i = 0; i < nfiles; i++) {
         const char *path = va_arg(ap, const char *);
         if (!path) {
-            // Откат изменений при ошибке
             for (int j = 0; j < i; j++) free(out_matches[j]);
             va_end(ap);
             return ERR_NULL;
@@ -167,7 +166,6 @@ Status search_in_files(const char *substr, int nfiles, size_t *out_total, size_t
         
         Status file_st = search_in_file(path, substr, substr_len, &out_matches[i], &out_counts[i]);
         if (file_st != OK) {
-            // Откат изменений при ошибке
             for (int j = 0; j < i; j++) free(out_matches[j]);
             va_end(ap);
             return file_st;
@@ -185,7 +183,6 @@ int main(void) {
         const char *paths[] = {"f1.txt", "f2.txt"};
         int nfiles = 2;
         
-        // Выделяем массивы под результаты
         Match **matches = (Match **)malloc(nfiles * sizeof(Match *));
         size_t *counts = (size_t *)malloc(nfiles * sizeof(size_t));
         size_t total = 0;

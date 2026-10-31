@@ -3,6 +3,7 @@
 #include <stdarg.h>
 #include <math.h>
 #include <float.h>
+#include <limits.h>
 
 typedef enum {
     SUCCESS = 0,
@@ -22,7 +23,7 @@ static const char *status_msg(status_t s) {
 }
 
 status_t new_polynom(double eps, double a, double **out_g, int n, ...) {
-    if (out_g == NULL || n < 0 || eps < 0.0) return ERR_INVALID_ARGUMENTS;
+    if (out_g == NULL || n < 0 || n >= INT_MAX || eps < 0.0) return ERR_INVALID_ARGUMENTS;
 
     double *f = (double *)malloc((n + 1) * sizeof(double));
     if (f == NULL) return ERR_MEMORY_ALLOCATION;
@@ -37,8 +38,13 @@ status_t new_polynom(double eps, double a, double **out_g, int n, ...) {
     va_start(ap, n);
     for (int i = 0; i <= n; i++) {
         f[i] = va_arg(ap, double);
+        if (!isfinite(f[i])) {
+            free(f); free(g); va_end(ap);
+            return ERR_OVERFLOW; 
+        }
     }
     va_end(ap);
+
 
     for (int k = 0; k <= n; k++) {
         for (int i = n - 1; i >= k; i--) {

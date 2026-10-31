@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <limits.h>
+#include <ctype.h>
 
 typedef enum {
     SUCCESS = 0,
@@ -83,10 +84,10 @@ static status_t parse_unsigned_int(const char **p, unsigned int *out) {
 
 static status_t parse_line(const char *line, FileInfo *out) {
     const char *p = line;
-    while (*p == ' ' || *p == '\t') p++;
+    while (isspace((unsigned char)*p)) p++;
 
     const char *name_start = p;
-    while (*p != '\0' && *p != ' ' && *p != '\t') p++;
+    while (*p != '\0' && !isspace((unsigned char)*p)) p++;
     if (p == name_start) return ERR_INVALID_FORMAT;
 
     size_t name_len = (size_t)(p - name_start);
@@ -95,21 +96,21 @@ static status_t parse_line(const char *line, FileInfo *out) {
     memcpy(out->name, name_start, name_len);
     out->name[name_len] = '\0';
 
-        while (*p == ' ' || *p == '\t') p++;
+    while (isspace((unsigned char)*p)) p++;
     status_t st = parse_unsigned_int(&p, &out->size);
     if (st != SUCCESS || out->size == 0) {
         free(out->name);
         return ERR_INVALID_FORMAT;
     }
 
-    while (*p == ' ' || *p == '\t') p++;
+    while (isspace((unsigned char)*p)) p++;
     st = parse_unsigned_int(&p, &out->importance);
     if (st != SUCCESS) {
         free(out->name);
         return ERR_INVALID_FORMAT;
     }
 
-    while (*p == ' ' || *p == '\t' || *p == '\r') p++;
+    while (isspace((unsigned char)*p) || *p == '\r') p++;
     if (*p != '\0') {
         free(out->name);
         return ERR_INVALID_FORMAT;
@@ -210,10 +211,10 @@ int main(void) {
     const char *p = line;
     unsigned int n, capacity;
     if (parse_unsigned_int(&p, &n) != SUCCESS) { free(line); fprintf(stderr, "Error: invalid n\n"); return 1; }
-    while (*p == ' ' || *p == '\t') p++;
+    while (isspace((unsigned char)*p)) p++;
     if (parse_unsigned_int(&p, &capacity) != SUCCESS) { free(line); fprintf(stderr, "Error: invalid capacity\n"); return 1; }
     
-    while (*p == ' ' || *p == '\t' || *p == '\r') p++;
+    while (isspace((unsigned char)*p) || *p == '\r') p++;
     if (*p != '\0') { free(line); fprintf(stderr, "Error: garbage after header\n"); return 1; }
     free(line);
 

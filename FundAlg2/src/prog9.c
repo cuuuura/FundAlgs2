@@ -53,7 +53,6 @@ static status_t is_finite(double x, int base, bool *out_is_finite) {
     if (out_is_finite == NULL) return ERR_INVALID_ARGUMENTS;
     if (base < 2) return ERR_INVALID_BASE;
     
-    // Проверка на NaN и inf
     if (isnan(x) || isinf(x)) return ERR_INVALID_VALUE;
     if (x <= 0.0 || x >= 1.0) return ERR_INVALID_VALUE;
 

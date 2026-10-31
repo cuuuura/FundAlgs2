@@ -200,7 +200,7 @@ int main(void) {
         char *result = NULL;
         status_t st = sum_all_in_base(10, 2, &result, "000123", "00456");
         if (st == SUCCESS) {
-            printf("000123 + 00456 = %s (must be 579)\n", result);
+            printf("000123 + 00456 = %s\n", result);
             free(result);
         } else {
             printf("Unexpected error: %s\n", status_msg(st));
@@ -211,7 +211,7 @@ int main(void) {
         char *result = NULL;
         status_t st = sum_2_in_base("000", "0000", 10, &result);
         if (st == SUCCESS) {
-            printf("000 + 0000 = %s (must be 0)\n", result);
+            printf("000 + 0000 = %s\n", result);
             free(result);
         } else {
             printf("Unexpected error: %s\n", status_msg(st));

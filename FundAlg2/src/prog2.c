@@ -152,22 +152,18 @@ static status_t parse_employee_line(const char *line, Employee *out) {
 
     while (*p == ' ' || *p == '\t') p++;
 
-    // salary
-        // salary
     char *endptr = NULL;
     double salary = strtod(p, &endptr);
     
-    // Проверяем, что распарсилось хоть что-то и что дальше нет мусора
-    if (endptr == p || salary < 0.0) {
+    if (endptr == p || !isfinite(salary) || salary < 0.0) {
         free(out->name); free(out->surname);
         return ERR_INVALID_FORMAT;
     }
     
-    // Пропускаем пробелы после числа
     p = endptr;
     while (*p == ' ' || *p == '\t' || *p == '\r') p++;
     
-    if (*p != '\0') { // Если после числа есть мусор - ошибка
+    if (*p != '\0') {
         free(out->name); free(out->surname);
         return ERR_INVALID_FORMAT;
     }

@@ -1,20 +1,20 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <stdarg.h>
 #include <stdint.h>
+#include <string.h>
 #include <ctype.h>
 #include <limits.h>
 
 typedef enum {
     OK = 0,
-    ERR_ARGS,
     ERR_NULL,
     ERR_MEMORY,
-    ERR_FORMAT
-} Status;
+    ERR_FORMAT,
+    ERR_ARGS
+} status_t;
 
-static Status append_char(char **buf, size_t *len, size_t *cap, char c) {
+static status_t append_char(char **buf, size_t *len, size_t *cap, char c) {
     if (*len + 1 >= *cap) {
         size_t new_cap = (*cap == 0) ? 64 : *cap * 2;
         char *tmp = (char *)realloc(*buf, new_cap * sizeof(char));
@@ -27,13 +27,13 @@ static Status append_char(char **buf, size_t *len, size_t *cap, char c) {
     return OK;
 }
 
-static Status append_str(char **buf, size_t *len, size_t *cap, const char *str) {
+static status_t append_str(char **buf, size_t *len, size_t *cap, const char *str) {
     size_t slen = strlen(str);
     if (*len + slen >= *cap) {
         size_t new_cap = (*cap == 0) ? 64 : *cap;
         while (new_cap <= *len + slen) new_cap *= 2;
         char *tmp = (char *)realloc(*buf, new_cap * sizeof(char));
-        if (!tmp) return ERR_MEMORY;
+         if (!tmp) return ERR_MEMORY;
         *buf = tmp;
         *cap = new_cap;
     }
@@ -43,15 +43,30 @@ static Status append_str(char **buf, size_t *len, size_t *cap, const char *str) 
     return OK;
 }
 
+static status_t append_mem(char **buf, size_t *len, size_t *cap, const char *mem, size_t n) {
+    if (*len + n >= *cap) {
+        size_t new_cap = (*cap == 0) ? 64 : *cap;
+        while (new_cap <= *len + n) new_cap *= 2;
+        char *tmp = (char *)realloc(*buf, new_cap * sizeof(char));
+        if (!tmp) return ERR_MEMORY;
+        *buf = tmp;
+        *cap = new_cap;
+    }
+    memcpy(*buf + *len, mem, n);
+    *len += n;
+    (*buf)[*len] = '\0';
+    return OK;
+}
+
 // %Ro
-static Status append_roman(int val, char **buf, size_t *len, size_t *cap) {
+static status_t append_roman(int val, char **buf, size_t *len, size_t *cap) {
     if (val <= 0) return OK; 
     const int values[] = {1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1};
     const char *romans[] = {"M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I"};
     
     for (int i = 0; i < 13; i++) {
         while (val >= values[i]) {
-            Status st = append_str(buf, len, cap, romans[i]);
+            status_t st = append_str(buf, len, cap, romans[i]);
             if (st != OK) return st;
             val -= values[i];
         }
@@ -60,19 +75,19 @@ static Status append_roman(int val, char **buf, size_t *len, size_t *cap) {
 }
 
 // %Zr
-static Status append_zeckendorf(unsigned int val, char **buf, size_t *len, size_t *cap) {
+static status_t append_zeckendorf(unsigned int val, char **buf, size_t *len, size_t *cap) {
     if (val == 0) {
-        Status st = append_char(buf, len, cap, '0');
+        status_t st = append_char(buf, len, cap, '0');
         if (st != OK) return st;
         return append_char(buf, len, cap, '1');
     }
     
     unsigned long long fib[64];
     fib[0] = 1; fib[1] = 2;
-    int count = 2;
-    while (fib[count - 1] + fib[count - 2] <= val) {
-        fib[count] = fib[count - 1] + fib[count - 2];
+    int count = 1; // Количество чисел Фибоначчи, которые нужны
+    while (fib[count] <= val && count < 63) {
         count++;
+        fib[count] = fib[count-1] + fib[count-2];
     }
     
     char bits[64] = {0};
@@ -86,14 +101,14 @@ static Status append_zeckendorf(unsigned int val, char **buf, size_t *len, size_
     }
     
     for (int i = 0; i < count; i++) {
-        Status st = append_char(buf, len, cap, bits[i]);
+        status_t st = append_char(buf, len, cap, bits[i]);
         if (st != OK) return st;
     }
     return append_char(buf, len, cap, '1');
 }
 
 // %Cv и %CV
-static Status append_base(int val, int base, int is_upper, char **buf, size_t *len, size_t *cap) {
+static status_t append_base(int val, int base, int is_upper, char **buf, size_t *len, size_t *cap) {
     if (base < 2 || base > 36) base = 10;
     if (val == 0) return append_char(buf, len, cap, '0');
     
@@ -110,18 +125,18 @@ static Status append_base(int val, int base, int is_upper, char **buf, size_t *l
     }
     
     if (val < 0) {
-        Status st = append_char(buf, len, cap, '-');
+        status_t st = append_char(buf, len, cap, '-');
         if (st != OK) return st;
     }
     for (int i = pos - 1; i >= 0; i--) {
-        Status st = append_char(buf, len, cap, temp[i]);
+        status_t st = append_char(buf, len, cap, temp[i]);
         if (st != OK) return st;
     }
     return OK;
 }
 
 // %to и %TO
-static Status append_from_base(const char *str, int base, char **buf, size_t *len, size_t *cap) {
+static status_t append_from_base(const char *str, int base, char **buf, size_t *len, size_t *cap) {
     if (base < 2 || base > 36) base = 10;
     
     long long val = 0;
@@ -140,6 +155,9 @@ static Status append_from_base(const char *str, int base, char **buf, size_t *le
         p++;
     }
     
+    // Проверка на мусор после числа
+    if (*p != '\0') return ERR_FORMAT;
+    
     val *= sign;
     
     char temp[32];
@@ -148,27 +166,27 @@ static Status append_from_base(const char *str, int base, char **buf, size_t *le
 }
 
 // %mi, %mu, %md, %mf
-static Status append_memory_dump(void *ptr, size_t size, char **buf, size_t *len, size_t *cap) {
+static status_t append_memory_dump(void *ptr, size_t size, char **buf, size_t *len, size_t *cap) {
     unsigned char *bytes = (unsigned char *)ptr;
     for (size_t i = 0; i < size; i++) {
         for (int bit = 7; bit >= 0; bit--) {
-            Status st = append_char(buf, len, cap, (bytes[i] & (1 << bit)) ? '1' : '0');
+            status_t st = append_char(buf, len, cap, (bytes[i] & (1 << bit)) ? '1' : '0');
             if (st != OK) return st;
         }
         if (i < size - 1) {
-            Status st = append_char(buf, len, cap, ' ');
+            status_t st = append_char(buf, len, cap, ' ');
             if (st != OK) return st;
         }
     }
     return OK;
 }
 
-static Status overvsprintf(char **out, const char *format, va_list args) {
+static status_t overvsprintf(char **out, const char *format, va_list args) {
     if (!out || !format) return ERR_NULL;
 
     char *buf = NULL;
     size_t len = 0, cap = 0;
-    Status st = OK;
+    status_t st = OK;
 
     va_list copy;
     va_copy(copy, args);
@@ -229,38 +247,48 @@ static Status overvsprintf(char **out, const char *format, va_list args) {
                 st = append_memory_dump(&f_val, sizeof(float), &buf, &len, &cap);
                 p += 3;
             }
+            // Обработка %n вручную
+            else if (strncmp(p, "%n", 2) == 0) {
+                int *ptr = va_arg(copy, int*);
+                if (ptr) *ptr = (int)len;
+                p += 2;
+            }
             else if (*(p + 1) == '%') {
                 st = append_char(&buf, &len, &cap, '%');
                 p += 2;
             }
             else {
-                // Парсинг стандартных спецификаторов
+                // Парсинг стандартных спецификаторов (добавлена F)
                 const char *end = p + 1;
-                while (*end && !strchr("diouxXeEfgGaAcspn", *end)) end++;
+                while (*end && !strchr("diouxXeEfgGaAcspnF", *end)) end++;
                 
                 if (*end) {
                     size_t spec_len = end - p + 1;
-                    char spec[32];
-                    if (spec_len >= sizeof(spec)) spec_len = sizeof(spec) - 1;
-                    memcpy(spec, p, spec_len);
-                    spec[spec_len] = '\0';
-
-                    va_list args_count;
-                    va_copy(args_count, copy);
-                    int n = vsnprintf(NULL, 0, spec, args_count);
-                    va_end(args_count);
-
-                    if (n >= 0) {
-                        char *tmp = (char *)malloc((size_t)n + 1);
-                        if (tmp) {
-                            vsnprintf(tmp, (size_t)n + 1, spec, copy); 
-                            st = append_str(&buf, &len, &cap, tmp);
-                            free(tmp);
-                        } else {
-                            st = ERR_MEMORY;
-                        }
+                    char *spec = (char *)malloc(spec_len + 1);
+                    if (!spec) {
+                        st = ERR_MEMORY;
                     } else {
-                        st = ERR_FORMAT;
+                        memcpy(spec, p, spec_len);
+                        spec[spec_len] = '\0';
+
+                        va_list args_count;
+                        va_copy(args_count, copy);
+                        int n = vsnprintf(NULL, 0, spec, args_count);
+                        va_end(args_count);
+
+                        if (n >= 0) {
+                            char *tmp = (char *)malloc((size_t)n + 1);
+                            if (tmp) {
+                                vsnprintf(tmp, (size_t)n + 1, spec, copy); 
+                                st = append_mem(&buf, &len, &cap, tmp, (size_t)n);
+                                free(tmp);
+                            } else {
+                                st = ERR_MEMORY;
+                            }
+                        } else {
+                            st = ERR_FORMAT;
+                        }
+                        free(spec);
                     }
                     p = end + 1;
                 } else {
@@ -299,7 +327,7 @@ int oversprintf(char *str, const char *format, ...) {
     va_list args;
     va_start(args, format);
     char *res = NULL;
-    Status st = overvsprintf(&res, format, args);
+    status_t st = overvsprintf(&res, format, args);
     va_end(args);
 
     if (st != OK || !res) {
@@ -308,28 +336,32 @@ int oversprintf(char *str, const char *format, ...) {
     }
 
     size_t len = strlen(res);
-    memcpy(str, res, len + 1); 
-    
+    memcpy(str, res, len + 1);
     free(res);
+    
     return (int)len;
 }
 
 int overfprintf(FILE *stream, const char *format, ...) {
     if (!stream) return -1;
-
+    
+    char *res = NULL;
     va_list args;
     va_start(args, format);
-    char *res = NULL;
-    Status st = overvsprintf(&res, format, args);
+    status_t st = overvsprintf(&res, format, args);
     va_end(args);
 
-    if (st != OK || !res) return -1;
-
-    size_t len = strlen(res);
-    fwrite(res, 1, len, stream);
-    free(res);
-    
-    return (int)len;
+    if (st == OK && res) {
+        size_t len = strlen(res);
+        if (fwrite(res, 1, len, stream) != len) {
+            free(res);
+            return -1;
+        }
+        free(res);
+        return (int)len;
+    }
+    if (res) free(res);
+    return -1;
 }
 
 int main(void) {
@@ -342,7 +374,7 @@ int main(void) {
         buf = (char *)malloc(BUF_SIZE);
         if (!buf) return 1;
 
-        res = oversprintf(buf, "Roman: %Ro, Zeckendorf: %Zr", 1984, 100);
+        res = oversprintf(buf, "Roman: %Ro, Zeckendorf: %Zr, One: %Zr", 1984, 100, 1);
         if (res >= 0) {
             printf("%s\n", buf);
         } else {
@@ -396,24 +428,43 @@ int main(void) {
         buf = (char *)malloc(BUF_SIZE);
         if (!buf) return 1;
 
-        res = oversprintf(buf, "A%cB%sC", 'x', "");
+        int chars_written = 0;
+        res = oversprintf(buf, "A%cB%sC%n", 'x', "", &chars_written);
         if (res >= 0) {
-            printf("Result: '%s' (written: %d)\n", buf, res);
+            printf("Result: '%s' (written: %d, %%n says: %d)\n", buf, res, chars_written);
         } else {
             printf("Error: oversprintf failed\n");
         }
         free(buf);
     }
 
-    // Дополнительный тест на обработку ошибок (передача NULL в буфер)
     printf("\n");
     {
-        res = oversprintf(NULL, "This should fail");
-        if (res < 0) {
-            printf("Correctly caught error: passing NULL buffer returns %d\n", res);
+        buf = (char *)malloc(BUF_SIZE);
+        if (!buf) return 1;
+
+        res = oversprintf(buf, "Null char: [%c], Infinity: %F", '\0', 1.0/0.0);
+        if (res >= 0) {
+            fwrite(buf, 1, (size_t)res, stdout);
+            printf(" (written: %d)\n", res);
         } else {
-            printf("Error: NULL buffer was not handled\n");
+            printf("Error: oversprintf failed\n");
         }
+        free(buf);
+    }
+
+    printf("\n");
+    {
+        buf = (char *)malloc(BUF_SIZE);
+        if (!buf) return 1;
+
+        res = oversprintf(buf, "Invalid from base: %to", "ffg", 16);
+        if (res < 0) {
+            printf("Correctly caught error: invalid format for %%to\n");
+        } else {
+            printf("Error: %%to did not catch garbage\n");
+        }
+        free(buf);
     }
 
     return 0;

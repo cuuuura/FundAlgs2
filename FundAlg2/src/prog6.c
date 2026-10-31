@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <ctype.h>
+#include <limits.h>
 
 typedef struct {
     FILE *file;
@@ -47,15 +48,18 @@ static int read_roman(Source *src, int *out_val) {
             case 'C': cur = 100; break;
             case 'D': cur = 500; break;
             case 'M': cur = 1000; break;
-            default: unget_char(src, c); goto done;
+            default: 
+                unget_char(src, c); 
+                if (!read_any) return 0;
+                *out_val = total;
+                return 1;
         }
         if (prev < cur) total -= prev * 2;
         total += cur;
         prev = cur;
         read_any = 1;
     }
-done:
-    if (!read_any) return 0; // Ничего не прочитали
+    if (!read_any) return 0;
     *out_val = total;
     return 1;
 }
@@ -86,7 +90,7 @@ static int read_zeckendorf(Source *src, unsigned int *out_val) {
 
     if (len == 0) {
         free(bits);
-        return 0; // Ничего не прочитали
+        return 0;
     }
 
     unsigned long long fib[64];
@@ -112,16 +116,10 @@ static int read_base(Source *src, int base, int *out_val) {
     
     int c = get_char(src);
     int sign = 1;
-    
-    // Обработка отрицательных чисел
-    if (c == '-') {
-        sign = -1;
-        c = get_char(src);
-    } else if (c == '+') {
-        c = get_char(src);
-    }
+    if (c == '-') { sign = -1; c = get_char(src); }
+    else if (c == '+') { c = get_char(src); }
 
-    int val = 0;
+    long long val = 0;
     int read_any = 0;
 
     while (c != EOF) {
@@ -135,17 +133,15 @@ static int read_base(Source *src, int base, int *out_val) {
             break;
         }
         val = val * base + digit;
+        if (val > INT_MAX) val = INT_MAX;
         read_any = 1;
         c = get_char(src);
     }
-
     if (!read_any) {
-        // Если минус был, но цифр нет, возвращаем минус обратно в поток
-        if (sign == -1) unget_char(src, '-'); 
+        if (sign == -1) unget_char(src, '-');
         return 0;
     }
-    
-    *out_val = sign * val;
+    *out_val = (int)(sign * val);
     return 1;
 }
 
@@ -188,7 +184,7 @@ static int overvscanf(Source *src, const char *format, va_list args) {
                     end++;
                 }
                 
-                if (*end) {
+                if (end > p + 1) {
                     size_t spec_len = end - p;
                     char *spec = (char *)malloc(spec_len + 1);
                     char *spec_n = (char *)malloc(spec_len + 4);
@@ -293,7 +289,7 @@ int main(void) {
     {
         int val;
         if (oversscanf("-1A", "%Cv", &val, 16) == 1) {
-            printf("Negative Cv (-1A hex): %d\n", val); // Ожидается -26
+            printf("Negative Cv (-1A hex): %d\n", val);
         }
     }
 
@@ -310,14 +306,15 @@ int main(void) {
     {
         int a;
         int c = oversscanf("A 42", "B %d", &a);
-        printf("Literal mismatch check: read %d items (expected 0)\n", c);
+        printf("Literal mismatch check: read %d items\n", c);
     }
 
     printf("\n");
+
     {
         int a;
         int c = oversscanf("", "%d", &a);
-        printf("EOF check: read %d items (expected 0)\n", c);
+        printf("EOF check: read %d items\n", c);
     }
 
     FILE *f = tmpfile();
