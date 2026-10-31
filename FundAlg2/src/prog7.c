@@ -62,6 +62,11 @@ static double norm_p(const Vector *v, const void *ctx) {
 
 static double norm_A(const Vector *v, const void *ctx) {
     const Matrix *A = (const Matrix *)ctx;
+    
+    if (A == NULL || A->n != v->n) {
+        return -1.0; 
+    }
+
     double sum = 0.0;
     for (int i = 0; i < v->n; i++) {
         double Ax_i = 0.0;

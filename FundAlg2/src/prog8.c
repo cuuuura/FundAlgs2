@@ -39,14 +39,20 @@ static char val_to_char(int v) {
 static status_t validate_number(const char *s, int base) {
     if (s == NULL || *s == '\0') return ERR_INVALID_FORMAT;
     
-    size_t len = strlen(s);
-    if (len > 1 && s[0] == '0') return ERR_INVALID_FORMAT;
-
-    for (size_t i = 0; i < len; i++) {
+    for (size_t i = 0; s[i] != '\0'; i++) {
         int val = char_to_val(s[i]);
         if (val < 0 || val >= base) return ERR_INVALID_FORMAT;
     }
     return SUCCESS;
+}
+
+static const char *skip_leading_zeros(const char *s) {
+    if (s == NULL || *s == '\0') return "0";
+    
+    while (*s == '0' && *(s + 1) != '\0') {
+        s++;
+    }
+    return s;
 }
 
 static status_t sum_2_in_base(const char *a, const char *b, int base, char **out_res) {
@@ -90,9 +96,10 @@ status_t sum_all_in_base(int base, int count, char **out_res, ...) {
     if (base < 2 || base > 36) return ERR_INVALID_BASE;
     if (count < 0) return ERR_INVALID_ARGUMENTS;
 
-    char *current_sum = (char *)malloc(2*sizeof(char));
+    char *current_sum = (char *)malloc(2 * sizeof(char));
     if (!current_sum) return ERR_MEMORY_ALLOCATION;
-    current_sum[0] = '0'; current_sum[1] = '\0';
+    current_sum[0] = '0'; 
+    current_sum[1] = '\0';
 
     va_list ap;
     va_start(ap, out_res);
@@ -100,6 +107,7 @@ status_t sum_all_in_base(int base, int count, char **out_res, ...) {
     for (int i = 0; i < count; i++) {
         const char *num_str = va_arg(ap, const char *);
         
+        // 1. Валидируем исходную строку (проверяем на мусор и недопустимые цифры)
         status_t st = validate_number(num_str, base);
         if (st != SUCCESS) {
             free(current_sum);
@@ -107,8 +115,12 @@ status_t sum_all_in_base(int base, int count, char **out_res, ...) {
             return st;
         }
 
+        // 2. Убираем ведущие нули (например, "000123" станет "123")
+        const char *clean_str = skip_leading_zeros(num_str);
+
+        // 3. Складываем
         char *next_sum = NULL;
-        st = sum_2_in_base(current_sum, num_str, base, &next_sum);
+        st = sum_2_in_base(current_sum, clean_str, base, &next_sum);
         if (st != SUCCESS) {
             free(current_sum);
             va_end(ap);
@@ -120,7 +132,6 @@ status_t sum_all_in_base(int base, int count, char **out_res, ...) {
     }
 
     va_end(ap);
-
     *out_res = current_sum;
     return SUCCESS;
 }
@@ -189,6 +200,29 @@ int main(void) {
             free(result);
         } else {
             printf("Expected error: %s\n", status_msg(st));
+        }
+    }
+    printf("\n");
+    {
+        char *result = NULL;
+        status_t st = sum_all_in_base(10, 2, &result, "000123", "00456");
+        if (st == SUCCESS) {
+            printf("000123 + 00456 = %s\n", result); 
+            free(result);
+        } else {
+            printf("Error: %s\n", status_msg(st));
+        }
+    }
+
+    printf("\n");
+    {
+        char *result = NULL;
+        status_t st = sum_all_in_base(2, 2, &result, "0000", "00");
+        if (st == SUCCESS) {
+            printf("0000 + 00 = %s\n", result);
+            free(result);
+        } else {
+            printf("Error: %s\n", status_msg(st));
         }
     }
 
