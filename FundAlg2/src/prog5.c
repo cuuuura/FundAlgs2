@@ -304,87 +304,126 @@ static Status overvsprintf(char **out, const char *format, va_list args) {
     return OK;
 }
 
-Status oversprintf(char **out, const char *format, ...) {
-    va_list args;
-    va_start(args, format);
-    Status st = overvsprintf(out, format, args);
-    va_end(args);
-    return st;
-}
+int oversprintf(char *str, const char *format, ...) {
+    if (!str) return -1;
 
-Status overfprintf(FILE *stream, const char *format, ...) {
-    if (!stream) return ERR_NULL;
-    
-    char *res = NULL;
     va_list args;
     va_start(args, format);
+    char *res = NULL;
     Status st = overvsprintf(&res, format, args);
     va_end(args);
 
-    if (st == OK && res) {
-        fputs(res, stream);
-        free(res);
+    if (st != OK || !res) {
+        if (str) str[0] = '\0';
+        return -1;
     }
-    return st;
+
+    size_t len = strlen(res);
+    memcpy(str, res, len + 1); 
+    
+    free(res);
+    return (int)len;
+}
+
+int overfprintf(FILE *stream, const char *format, ...) {
+    if (!stream) return -1;
+
+    va_list args;
+    va_start(args, format);
+    char *res = NULL;
+    Status st = overvsprintf(&res, format, args);
+    va_end(args);
+
+    if (st != OK || !res) return -1;
+
+    size_t len = strlen(res);
+    fwrite(res, 1, len, stream);
+    free(res);
+    
+    return (int)len;
 }
 
 int main(void) {
-    {
-        printf("\n");
-        char *test = NULL;
-        Status st = oversprintf(&test, "Roman: %Ro, Zeckendorf: %Zr", 1984, 100);
-        if (st == OK) {
-            printf("%s\n", test);
-            free(test);
-        } else {
-            printf("Error: %s\n", status_msg(st));
-        }
-    }
-    printf("\n");
-    {
-        char *test = NULL;
-        Status st = oversprintf(&test, "Base 16: %Cv, Base 2: %CV", 255, 16, 255, 2);
-        if (st == OK) {
-            printf("%s\n", test);
-            free(test);
-        } else {
-            printf("Error: %s\n", status_msg(st));
-        }
-    }
-    printf("\n");
+    const size_t BUF_SIZE = 512;
+    char *buf = NULL;
+    int res = 0;
 
-    {
-        char *test = NULL;
-        Status st = oversprintf(&test, "From base: %to, Standard int: %d, Float: %0.2f", "ff", 16, 42, 3.14159);
-        if (st == OK) {
-            printf("%s\n", test);
-            free(test);
-        } else {
-            printf("Error: %s\n", status_msg(st));
-        }
-    }
     printf("\n");
-
     {
-        Status st = overfprintf(stdout, "Int 1: %mi\n", 1);
-        if (st != OK) printf("Error: %s\n", status_msg(st));
+        buf = (char *)malloc(BUF_SIZE);
+        if (!buf) return 1;
+
+        res = oversprintf(buf, "Roman: %Ro, Zeckendorf: %Zr", 1984, 100);
+        if (res >= 0) {
+            printf("%s\n", buf);
+        } else {
+            printf("Error: oversprintf failed\n");
+        }
+        free(buf);
+    }
+    
+    printf("\n");
+    {
+        buf = (char *)malloc(BUF_SIZE);
+        if (!buf) return 1;
+
+        res = oversprintf(buf, "Base 16: %Cv, Base 2: %CV", 255, 16, 255, 2);
+        if (res >= 0) {
+            printf("%s\n", buf);
+        } else {
+            printf("Error: oversprintf failed\n");
+        }
+        free(buf);
+    }
+    
+    printf("\n");
+    {
+        buf = (char *)malloc(BUF_SIZE);
+        if (!buf) return 1;
+
+        res = oversprintf(buf, "From base: %to, Standard int: %d, Float: %0.2f", "ff", 16, 42, 3.14159);
+        if (res >= 0) {
+            printf("%s\n", buf);
+        } else {
+            printf("Error: oversprintf failed\n");
+        }
+        free(buf);
+    }
+    
+    printf("\n");
+    {
+        res = overfprintf(stdout, "Int 1: %mi\n", 1);
+        if (res < 0) printf("Error: overfprintf failed\n");
         
-        st = overfprintf(stdout, "Double 1.0: %md\n", 1.0);
-        if (st != OK) printf("Error: %s\n", status_msg(st));
+        res = overfprintf(stdout, "Double 1.0: %md\n", 1.0);
+        if (res < 0) printf("Error: overfprintf failed\n");
         
-        st = overfprintf(stdout, "Float 1.0: %mf\n", 1.0f);
-        if (st != OK) printf("Error: %s\n", status_msg(st));
+        res = overfprintf(stdout, "Float 1.0: %mf\n", 1.0f);
+        if (res < 0) printf("Error: overfprintf failed\n");
     }
+    
     printf("\n");
-
     {
-        char *test = NULL;
-        Status st = oversprintf(&test, "A%cB%sC", 'x', "");
-        if (st == OK) {
-            printf("Result: '%s'\n", test);
-            free(test);
+        buf = (char *)malloc(BUF_SIZE);
+        if (!buf) return 1;
+
+        res = oversprintf(buf, "A%cB%sC", 'x', "");
+        if (res >= 0) {
+            printf("Result: '%s' (written: %d)\n", buf, res);
         } else {
-            printf("Error: %s\n", status_msg(st));
+            printf("Error: oversprintf failed\n");
+        }
+        free(buf);
+    }
+
+    // Дополнительный тест на обработку ошибок (передача NULL в буфер)
+    printf("\n");
+    {
+        res = oversprintf(NULL, "This should fail");
+        if (res < 0) {
+            printf("Correctly caught error: passing NULL buffer returns %d\n", res);
+        } else {
+            printf("Error: NULL buffer was not handled\n");
         }
     }
 
