@@ -26,6 +26,11 @@ static const char *status_msg(Status s) {
     }
 }
 
+typedef struct {
+    size_t line_num;
+    size_t col_num;
+} Match;
+
 static Status load_file(const char *path, char **out_buf, size_t *out_len) {
     if (!path || !out_buf || !out_len) return ERR_NULL;
     
@@ -65,16 +70,23 @@ static Status load_file(const char *path, char **out_buf, size_t *out_len) {
     return OK;
 }
 
-static size_t count_occurrences(const char *text, size_t text_len, const char *pat, size_t pat_len) {
-    if (pat_len == 0 || text_len < pat_len) return 0;
-
-    size_t count = 0;
-    int shift[256];
-
-    for (int i = 0; i < 256; i++) {
-        shift[i] = (int)pat_len;
+static Status find_occurrences(const char *text, size_t text_len, const char *pat, size_t pat_len, Match **out_matches, size_t *out_count) {
+    if (pat_len == 0 || text_len < pat_len) {
+        *out_matches = NULL;
+        *out_count = 0;
+        return OK;
     }
-    
+
+    size_t cap = 16;
+    size_t count = 0;
+    Match *matches = (Match *)malloc(cap * sizeof(Match));
+    if (!matches) return ERR_MEMORY;
+
+    size_t current_line = 1;
+    size_t line_start_pos = 0;
+
+    int shift[256];
+    for (int i = 0; i < 256; i++) shift[i] = (int)pat_len;
     for (size_t i = 0; i < pat_len - 1; i++) {
         shift[(unsigned char)pat[i]] = (int)(pat_len - 1 - i);
     }
@@ -88,17 +100,40 @@ static size_t count_occurrences(const char *text, size_t text_len, const char *p
         }
 
         if (j < 0) {
+            if (count == cap) {
+                cap *= 2;
+                Match *tmp = (Match *)realloc(matches, cap * sizeof(Match));
+                if (!tmp) { free(matches); return ERR_MEMORY; }
+                matches = tmp;
+            }
+
+            size_t current_pos = line_start_pos;
+            size_t l = current_line;
+            while (current_pos < i) {
+                if (text[current_pos] == '\n') {
+                    l++;
+                    line_start_pos = current_pos + 1;
+                }
+                current_pos++;
+            }
+
+            matches[count].line_num = l;
+            matches[count].col_num = i - line_start_pos + 1;
             count++;
+
             i += shift[(unsigned char)text[i + pat_len - 1]];
         } else {
             i += shift[(unsigned char)text[i + pat_len - 1]];
         }
     }
-    return count;
+
+    *out_matches = matches;
+    *out_count = count;
+    return OK;
 }
 
-static Status search_in_file(const char *path, const char *substr, size_t substr_len, size_t *out_count) {
-    if (!path || !substr || !out_count) return ERR_NULL;
+static Status search_in_file(const char *path, const char *substr, size_t substr_len, Match **out_matches, size_t *out_count) {
+    if (!path || !substr || !out_matches || !out_count) return ERR_NULL;
     if (substr_len == 0) return ERR_EMPTY_SUBSTR;
 
     char *buf = NULL;
@@ -106,13 +141,13 @@ static Status search_in_file(const char *path, const char *substr, size_t substr
     Status st = load_file(path, &buf, &len);
     if (st != OK) return st;
 
-    *out_count = count_occurrences(buf, len, substr, substr_len);
+    st = find_occurrences(buf, len, substr, substr_len, out_matches, out_count);
     free(buf);
-    return OK;
+    return st;
 }
 
-Status search_in_files(const char *substr, int nfiles, size_t *out_total, size_t *out_counts, ...) {
-    if (!substr || !out_total) return ERR_NULL;
+Status search_in_files(const char *substr, int nfiles, size_t *out_total, size_t *out_counts, Match **out_matches, ...) {
+    if (!substr || !out_total || !out_counts || !out_matches) return ERR_NULL;
     if (nfiles < 0) return ERR_ARGS;
     if (substr[0] == '\0') return ERR_EMPTY_SUBSTR;
 
@@ -120,21 +155,24 @@ Status search_in_files(const char *substr, int nfiles, size_t *out_total, size_t
     size_t total = 0;
 
     va_list ap;
-    va_start(ap, out_counts);
+    va_start(ap, out_matches);
     for (int i = 0; i < nfiles; i++) {
         const char *path = va_arg(ap, const char *);
         if (!path) {
+            // Откат изменений при ошибке
+            for (int j = 0; j < i; j++) free(out_matches[j]);
             va_end(ap);
             return ERR_NULL;
         }
-        size_t count = 0;
-        Status file_st = search_in_file(path, substr, substr_len, &count);
+        
+        Status file_st = search_in_file(path, substr, substr_len, &out_matches[i], &out_counts[i]);
         if (file_st != OK) {
+            // Откат изменений при ошибке
+            for (int j = 0; j < i; j++) free(out_matches[j]);
             va_end(ap);
             return file_st;
         }
-        total += count;
-        if (out_counts) out_counts[i] = count;
+        total += out_counts[i];
     }
     va_end(ap);
 
@@ -144,76 +182,36 @@ Status search_in_files(const char *substr, int nfiles, size_t *out_total, size_t
 
 int main(void) {
     {
-        const char *paths[] = {"f1.txt"};
-        size_t counts[1] = {0};
-        size_t total = 0;
-        Status st = search_in_files("hello", 1, &total, counts, paths[0]);
-        if (st != OK) {
-            printf("Error: %s\n", status_msg(st));
-        } else {
-            printf("Total occurrences: %zu\n", total);
-            printf("  %s: %zu\n", paths[0], counts[0]);
-        }
-    }
-    printf("\n");
-    {
         const char *paths[] = {"f1.txt", "f2.txt"};
-        size_t counts[2] = {0, 0};
+        int nfiles = 2;
+        
+        // Выделяем массивы под результаты
+        Match **matches = (Match **)malloc(nfiles * sizeof(Match *));
+        size_t *counts = (size_t *)malloc(nfiles * sizeof(size_t));
         size_t total = 0;
-        Status st = search_in_files("hello", 2, &total, counts, paths[0], paths[1]);
-        if (st != OK) {
-            printf("Error: %s\n", status_msg(st));
-        } else {
-            printf("Total occurrences: %zu\n", total);
-            for (int i = 0; i < 2; i++) {
-                printf("  %s: %zu\n", paths[i], counts[i]);
-            }
-        }
-    }
-    printf("\n");
-    {
-        const char *paths[] = {"f1.txt", "f2.txt", "f3.txt"};
-        size_t counts[3] = {0, 0, 0};
-        size_t total = 0;
-        Status st = search_in_files("hello", 3, &total, counts,
-                                     paths[0], paths[1], paths[2]);
-        if (st != OK) {
-            printf("Error: %s\n", status_msg(st));
-        } else {
-            printf("Total occurrences: %zu\n", total);
-            for (int i = 0; i < 3; i++) {
-                printf("  %s: %zu\n", paths[i], counts[i]);
-            }
-        }
-    }
-    printf("\n");
-    {
-        const char *paths[] = {"f4.txt", "f4.txt"};
-        size_t counts[2] = {0, 0};
-        size_t total = 0;
-        Status st = search_in_files("aa", 2, &total, counts,
-                                     paths[0], paths[1]);
-        if (st != OK) {
-            printf("Error: %s\n", status_msg(st));
-        } else {
-            printf("Total occurrences: %zu\n", total);
-            for (int i = 0; i < 2; i++) {
-                printf("  %s: %zu\n", paths[i], counts[i]);
-            }
-        }
-    }
-    printf("\n");
-    {   
-        const char *paths[] = {"missing.txt"};
-        size_t counts[1] = {0};
-        size_t total = 0;
-        Status st = search_in_files("hello", 1, &total, counts, paths[0]);
-        if (st != OK) {
-            printf("Expected error: %s\n", status_msg(st));
-        } else {
-            printf("Unexpected success, total=%zu\n", total);
-        }
-    }
 
+        if (!matches || !counts) {
+            free(matches); free(counts);
+            return 1;
+        }
+
+        Status st = search_in_files("hello", nfiles, &total, counts, matches, paths[0], paths[1]);
+        
+        if (st != OK) {
+            printf("Error: %s\n", status_msg(st));
+        } else {
+            printf("Total occurrences: %zu\n", total);
+            for (int i = 0; i < nfiles; i++) {
+                printf("  %s: %zu matches\n", paths[i], counts[i]);
+                for (size_t j = 0; j < counts[i]; j++) {
+                    printf("    Line %zu, Sym %zu\n", matches[i][j].line_num, matches[i][j].col_num);
+                }
+                free(matches[i]);
+            }
+        }
+        
+        free(matches);
+        free(counts);
+    }
     return 0;
 }

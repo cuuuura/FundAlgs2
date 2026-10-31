@@ -95,17 +95,26 @@ static status_t parse_line(const char *line, FileInfo *out) {
     memcpy(out->name, name_start, name_len);
     out->name[name_len] = '\0';
 
-    while (*p == ' ' || *p == '\t') p++;
+        while (*p == ' ' || *p == '\t') p++;
     status_t st = parse_unsigned_int(&p, &out->size);
-    if (st != SUCCESS || out->size == 0) return ERR_INVALID_FORMAT;
+    if (st != SUCCESS || out->size == 0) {
+        free(out->name);
+        return ERR_INVALID_FORMAT;
+    }
 
     while (*p == ' ' || *p == '\t') p++;
     st = parse_unsigned_int(&p, &out->importance);
-    if (st != SUCCESS) return ERR_INVALID_FORMAT;
+    if (st != SUCCESS) {
+        free(out->name);
+        return ERR_INVALID_FORMAT;
+    }
 
     while (*p == ' ' || *p == '\t' || *p == '\r') p++;
-    if (*p != '\0') return ERR_INVALID_FORMAT;
-
+    if (*p != '\0') {
+        free(out->name);
+        return ERR_INVALID_FORMAT;
+    }
+    
     return SUCCESS;
 }
 
@@ -209,8 +218,8 @@ int main(void) {
     free(line);
 
     if (n == 0) {
-        printf("TOTAL_SIZE 0 TOTAL_IMPORTANCE 0 FILES 0\n");
-        return 0;
+        fprintf(stderr, "Error: number of files must be positive\n");
+        return 1;
     }
 
     FileInfo *files = (FileInfo *)malloc(n * sizeof(FileInfo));
@@ -233,7 +242,17 @@ int main(void) {
             free(files);
             return 1;
         }
-        read_count++;
+
+        for (size_t j = 0; j < read_count; j++) {
+            if (strcmp(files[j].name, files[i].name) == 0) {
+                fprintf(stderr, "Error: duplicate filename '%s'\n", files[i].name);
+                free(files[i].name);
+                for (size_t k = 0; k < read_count; k++) free(files[k].name);
+                free(files);
+                return 1;
+            }
+        }
+        read_count++;   
     }
 
     OptimalSet plan;

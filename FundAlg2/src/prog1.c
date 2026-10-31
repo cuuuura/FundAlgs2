@@ -161,14 +161,22 @@ int main(int argc, char *argv[]) {
     char action = flag[1];
     status_t status = SUCCESS;
 
-    switch (action) {
+        switch (action) {
         case 'l': {
+            if (argc != 3) {
+                fprintf(stderr, "Error: flag -l requires exactly 1 string\n");
+                return 1;
+            }
             size_t len = 0;
             status = get_length(str, &len);
             if (status == SUCCESS) printf("%zu\n", len);
             break;
         }
         case 'r': {
+            if (argc != 3) {
+                fprintf(stderr, "Error: flag -r requires exactly 1 string\n");
+                return 1;
+            }
             char *res = NULL;
             status = get_reversed(str, &res);
             if (status == SUCCESS) {
@@ -178,6 +186,10 @@ int main(int argc, char *argv[]) {
             break;
         }
         case 'u': {
+            if (argc != 3) {
+                fprintf(stderr, "Error: flag -u requires exactly 1 string\n");
+                return 1;
+            }
             char *res = NULL;
             status = get_upper(str, &res);
             if (status == SUCCESS) {
@@ -187,6 +199,10 @@ int main(int argc, char *argv[]) {
             break;
         }
         case 'n': {
+            if (argc != 3) {
+                fprintf(stderr, "Error: flag -n requires exactly 1 string\n");
+                return 1;
+            }
             char *res = NULL;
             status = get_sorted(str, &res);
             if (status == SUCCESS) {
@@ -197,10 +213,10 @@ int main(int argc, char *argv[]) {
         }
         case 'c': {
             if (argc < 4) {
-                status = ERR_INVALID_SEED;
-                break;
+                fprintf(stderr, "Error: flag -c requires a seed and at least one string\n");
+                return 1;
             }
-
+            
             unsigned int seed = 0;
             status = parse_seed(argv[3], &seed);
             if (status != SUCCESS) break;

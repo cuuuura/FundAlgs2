@@ -78,6 +78,11 @@ static status_t read_line(FILE *f, char **out_line) {
         }
         buf[len++] = (char)c;
     }
+
+    if (ferror(f)) {
+        free(buf);
+        return ERR_FILE_READ;
+    }
     
     if (c == EOF && len == 0) {
         free(buf);
@@ -148,35 +153,21 @@ static status_t parse_employee_line(const char *line, Employee *out) {
     while (*p == ' ' || *p == '\t') p++;
 
     // salary
-    const char *sal_start = p;
-    if (*p < '0' || *p > '9') {
+        // salary
+    char *endptr = NULL;
+    double salary = strtod(p, &endptr);
+    
+    // Проверяем, что распарсилось хоть что-то и что дальше нет мусора
+    if (endptr == p || salary < 0.0) {
         free(out->name); free(out->surname);
         return ERR_INVALID_FORMAT;
     }
-    while (*p >= '0' && *p <= '9') p++;
-    if (*p == '.') {
-        p++;
-        if (*p < '0' || *p > '9') {
-            free(out->name); free(out->surname);
-            return ERR_INVALID_FORMAT;
-        }
-        while (*p >= '0' && *p <= '9') p++;
-    }
-    const char *sal_end = p;
-
-    double salary = 0.0;
-    int frac_digits = 0;
-    int in_frac = 0;
-    for (const char *q = sal_start; q < sal_end; q++) {
-        if (*q == '.') { in_frac = 1; continue; }
-        salary = salary * 10.0 + (double)(*q - '0');
-        if (in_frac) frac_digits++;
-    }
-    for (int i = 0; i < frac_digits; i++) salary /= 10.0;
-
-    // после всей информации ничего не должно быть
+    
+    // Пропускаем пробелы после числа
+    p = endptr;
     while (*p == ' ' || *p == '\t' || *p == '\r') p++;
-    if (*p != '\0') {
+    
+    if (*p != '\0') { // Если после числа есть мусор - ошибка
         free(out->name); free(out->surname);
         return ERR_INVALID_FORMAT;
     }
@@ -246,6 +237,10 @@ static status_t load_employees(const char *path, Employee **out_arr, size_t *out
     }
 
     if (line) free(line);
+    if (ferror(f)) {
+        st = ERR_FILE_READ;
+    }
+
     fclose(f);
 
     if (st != SUCCESS) {
@@ -266,7 +261,7 @@ static status_t write_employees(const char *path, const Employee *arr, size_t co
 
     status_t st = SUCCESS;
     for (size_t i = 0; i < count; i++) {
-        if (fprintf(f, "%u %s %s %.2f\n", arr[i].id, arr[i].name, arr[i].surname, arr[i].salary) < 0) {
+        if (fprintf(f, "%u %s %s %.10g\n", arr[i].id, arr[i].name, arr[i].surname, arr[i].salary) < 0) {
             st = ERR_FILE_WRITE;
             break;
         }

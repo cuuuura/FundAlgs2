@@ -4,12 +4,6 @@
 #include <stdarg.h>
 #include <ctype.h>
 
-typedef enum {
-    SUCCESS = 0,
-    ERR_INVALID_ARGUMENTS,
-    ERR_MEMORY_ALLOCATION
-} status_t;
-
 typedef struct {
     FILE *file;
     const char *str;
@@ -38,9 +32,11 @@ static void skip_ws(Source *src) {
 }
 
 // %Ro
-static int read_roman(Source *src) {
+static int read_roman(Source *src, int *out_val) {
     skip_ws(src);
     int total = 0, prev = 0, c;
+    int read_any = 0;
+    
     while ((c = get_char(src)) != EOF) {
         int cur = 0;
         switch (toupper((unsigned char)c)) {
@@ -51,21 +47,24 @@ static int read_roman(Source *src) {
             case 'C': cur = 100; break;
             case 'D': cur = 500; break;
             case 'M': cur = 1000; break;
-            default: unget_char(src, c); return total;
+            default: unget_char(src, c); goto done;
         }
         if (prev < cur) total -= prev * 2;
         total += cur;
         prev = cur;
+        read_any = 1;
     }
-    return total;
+done:
+    if (!read_any) return 0; // Ничего не прочитали
+    *out_val = total;
+    return 1;
 }
 
 // %Zr
-static unsigned int read_zeckendorf(Source *src) {
+static int read_zeckendorf(Source *src, unsigned int *out_val) {
     skip_ws(src);
     
-    size_t cap = 64;
-    size_t len = 0;
+    size_t cap = 64, len = 0;
     char *bits = (char *)malloc(cap * sizeof(char));
     if (!bits) return 0;
 
@@ -75,10 +74,7 @@ static unsigned int read_zeckendorf(Source *src) {
             if (len + 1 >= cap) {
                 cap *= 2;
                 char *tmp = (char *)realloc(bits, cap * sizeof(char));
-                if (!tmp) {
-                    free(bits);
-                    return 0;
-                }
+                if (!tmp) { free(bits); return 0; }
                 bits = tmp;
             }
             bits[len++] = (char)c;
@@ -90,7 +86,7 @@ static unsigned int read_zeckendorf(Source *src) {
 
     if (len == 0) {
         free(bits);
-        return 0;
+        return 0; // Ничего не прочитали
     }
 
     unsigned long long fib[64];
@@ -105,15 +101,30 @@ static unsigned int read_zeckendorf(Source *src) {
     }
     
     free(bits);
-    return result;
+    *out_val = result;
+    return 1;
 }
 
 // %Cv и %CV 
-static int read_base(Source *src, int base) {
+static int read_base(Source *src, int base, int *out_val) {
     skip_ws(src);
     if (base < 2 || base > 36) base = 10;
-    int val = 0, c;
-    while ((c = get_char(src)) != EOF) {
+    
+    int c = get_char(src);
+    int sign = 1;
+    
+    // Обработка отрицательных чисел
+    if (c == '-') {
+        sign = -1;
+        c = get_char(src);
+    } else if (c == '+') {
+        c = get_char(src);
+    }
+
+    int val = 0;
+    int read_any = 0;
+
+    while (c != EOF) {
         int digit = -1;
         if (c >= '0' && c <= '9') digit = c - '0';
         else if (c >= 'a' && c <= 'z') digit = c - 'a' + 10;
@@ -124,8 +135,18 @@ static int read_base(Source *src, int base) {
             break;
         }
         val = val * base + digit;
+        read_any = 1;
+        c = get_char(src);
     }
-    return val;
+
+    if (!read_any) {
+        // Если минус был, но цифр нет, возвращаем минус обратно в поток
+        if (sign == -1) unget_char(src, '-'); 
+        return 0;
+    }
+    
+    *out_val = sign * val;
+    return 1;
 }
 
 static int overvscanf(Source *src, const char *format, va_list args) {
@@ -136,38 +157,43 @@ static int overvscanf(Source *src, const char *format, va_list args) {
         if (*p == '%') {
             if (strncmp(p, "%Ro", 3) == 0) {
                 int *ptr = va_arg(args, int*);
-                *ptr = read_roman(src);
-                count++;
+                if (read_roman(src, ptr)) count++;
                 p += 3;
             }
             else if (strncmp(p, "%Zr", 3) == 0) {
                 unsigned int *ptr = va_arg(args, unsigned int*);
-                *ptr = read_zeckendorf(src);
-                count++;
+                if (read_zeckendorf(src, ptr)) count++;
                 p += 3;
             }
             else if (strncmp(p, "%Cv", 3) == 0 || strncmp(p, "%CV", 3) == 0) {
                 int *ptr = va_arg(args, int*);
                 int base = va_arg(args, int);
-                *ptr = read_base(src, base);
-                count++;
+                if (read_base(src, base, ptr)) count++;
                 p += 3;
             }
             else {
                 // Обработка стандартных флагов
                 const char *end = p + 1;
-                while (*end && !strchr("diouxXeEfgGaAcspn", *end)) end++;
+                
+                if (*end == '*') end++;
+                while (*end >= '0' && *end <= '9') end++;
+                if (*end == 'h' || *end == 'l' || *end == 'L') end++;
+                
+                if (*end == '[') {
+                    end++;
+                    if (*end == '^') end++;
+                    while (*end && *end != ']') end++;
+                    if (*end == ']') end++;
+                } else {
+                    end++;
+                }
                 
                 if (*end) {
-                    char type = *end;
-                    size_t spec_len = end - p + 1;
-   
+                    size_t spec_len = end - p;
                     char *spec = (char *)malloc(spec_len + 1);
-                    char *spec_n = (char *)malloc(spec_len + 4); // + %n\0
-                    
+                    char *spec_n = (char *)malloc(spec_len + 4);
                     if (!spec || !spec_n) {
-                        free(spec);
-                        free(spec_n);
+                        free(spec); free(spec_n);
                         return count;
                     }
                     
@@ -177,39 +203,51 @@ static int overvscanf(Source *src, const char *format, va_list args) {
                     
                     int chars_read = 0;
                     int res = 0;
+                    int is_star = (strchr(spec, '*') != NULL);
 
-                    if (type == 'd' || type == 'i') {
-                        int *ptr = va_arg(args, int*);
-                        res = src->file ? fscanf(src->file, spec_n, ptr, &chars_read) : sscanf(src->str + src->pos, spec_n, ptr, &chars_read);
-                    } else if (type == 'u' || type == 'o' || type == 'x' || type == 'X') {
-                        unsigned int *ptr = va_arg(args, unsigned int*);
-                        res = src->file ? fscanf(src->file, spec_n, ptr, &chars_read) : sscanf(src->str + src->pos, spec_n, ptr, &chars_read);
-                    } else if (type == 'f' || type == 'e' || type == 'g') {
-                        float *ptr = va_arg(args, float*);
-                        res = src->file ? fscanf(src->file, spec_n, ptr, &chars_read) : sscanf(src->str + src->pos, spec_n, ptr, &chars_read);
-                    } else if (type == 's' || type == 'c') {
-                        char *ptr = va_arg(args, char*);
-                        res = src->file ? fscanf(src->file, spec_n, ptr, &chars_read) : sscanf(src->str + src->pos, spec_n, ptr, &chars_read);
+                    if (!is_star) {
+                        char type = *(end - 1);
+                        if (type == 'd' || type == 'i') {
+                            int *ptr = va_arg(args, int*);
+                            res = src->file ? fscanf(src->file, spec_n, ptr, &chars_read) : sscanf(src->str + src->pos, spec_n, ptr, &chars_read);
+                        } else if (type == 'u' || type == 'o' || type == 'x' || type == 'X') {
+                            unsigned int *ptr = va_arg(args, unsigned int*);
+                            res = src->file ? fscanf(src->file, spec_n, ptr, &chars_read) : sscanf(src->str + src->pos, spec_n, ptr, &chars_read);
+                        } else if (type == 'f' || type == 'e' || type == 'g' || type == 'E' || type == 'G') {
+                            float *ptr = va_arg(args, float*);
+                            res = src->file ? fscanf(src->file, spec_n, ptr, &chars_read) : sscanf(src->str + src->pos, spec_n, ptr, &chars_read);
+                        } else if (type == 's' || type == 'c' || type == '[') {
+                            char *ptr = va_arg(args, char*);
+                            res = src->file ? fscanf(src->file, spec_n, ptr, &chars_read) : sscanf(src->str + src->pos, spec_n, ptr, &chars_read);
+                        }
+                    } else {
+                        res = src->file ? fscanf(src->file, spec_n, &chars_read) : sscanf(src->str + src->pos, spec_n, &chars_read);
                     }
 
                     free(spec);
                     free(spec_n);
 
-                    if (res > 0) {
-                        count += res;
-                        if (!src->file && chars_read > 0) src->pos += chars_read;
+                    if (res <= 0 && chars_read == 0) {
+                        return count;
                     }
-                    p = end + 1;
+
+                    if (res > 0) count += res;
+                    if (!src->file && chars_read > 0) src->pos += chars_read;
+                    
+                    p = end;
                 } else {
-                    get_char(src);
-                    p++;
+                    return count;
                 }
             }
         } else if (isspace((unsigned char)*p)) {
             skip_ws(src);
             p++;
         } else {
-            get_char(src);
+            int c = get_char(src);
+            if (c == EOF || c != (unsigned char)*p) {
+                if (c != EOF) unget_char(src, c);
+                return count;
+            }
             p++;
         }
     }
@@ -217,6 +255,7 @@ static int overvscanf(Source *src, const char *format, va_list args) {
 }
 
 int overfscanf(FILE *stream, const char *format, ...) {
+    if (!stream || !format) return EOF;
     va_list args;
     va_start(args, format);
     Source src = { stream, NULL, 0 };
@@ -226,6 +265,7 @@ int overfscanf(FILE *stream, const char *format, ...) {
 }
 
 int oversscanf(const char *str, const char *format, ...) {
+    if (!str || !format) return EOF;
     va_list args;
     va_start(args, format);
     Source src = { NULL, str, 0 };
@@ -249,10 +289,35 @@ int main(void) {
         printf("CV (Hex FF): %d\n", r3);        
     }
 
-    int a; float b; char c;
-    if (oversscanf("42 3.14 X", "%d %f %c", &a, &b, &c) == 3) {
-        printf("\n\n");
-        printf("Int: %d, Float: %.2f, Char: %c\n", a, b, c);
+    printf("\n");
+    {
+        int val;
+        if (oversscanf("-1A", "%Cv", &val, 16) == 1) {
+            printf("Negative Cv (-1A hex): %d\n", val); // Ожидается -26
+        }
+    }
+
+    printf("\n");
+    {
+        int b;
+        char word[20];
+        if (oversscanf("42 100 hello", "%*d %d %[a-z]", &b, word) == 2) {
+            printf("Star & Set: b=%d, word=%s\n", b, word);
+        }
+    }
+
+    printf("\n");
+    {
+        int a;
+        int c = oversscanf("A 42", "B %d", &a);
+        printf("Literal mismatch check: read %d items (expected 0)\n", c);
+    }
+
+    printf("\n");
+    {
+        int a;
+        int c = oversscanf("", "%d", &a);
+        printf("EOF check: read %d items (expected 0)\n", c);
     }
 
     FILE *f = tmpfile();
@@ -262,7 +327,7 @@ int main(void) {
         
         int year;
         if (overfscanf(f, "%Ro %Zr", &year, &z) == 2) {
-            printf("\n\n");
+            printf("\n");
             printf("Year: %d\n", year);   
             printf("Zr: %u\n", z);        
         }
