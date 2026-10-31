@@ -3,6 +3,7 @@
 #include <stdarg.h>
 #include <stdbool.h>
 #include <math.h>
+#include <limits.h>
 
 #define EPS 1e-12
 
@@ -23,30 +24,56 @@ static const char *status_msg(status_t s) {
     }
 }
 
+static void get_fraction(double x, long long *out_p, long long *out_q) {
+    long long h1 = 1, h0 = 0;
+    long long k1 = 0, k0 = 1;
+    double b = x;
+    
+    for (int i = 0; i < 20; i++) {
+        long long a = (long long)b;
+        long long h2 = a * h1 + h0;
+        long long k2 = a * k1 + k0;
+        
+        if (k2 > INT_MAX || k2 <= 0) break;
+        
+        h0 = h1; h1 = h2;
+        k0 = k1; k1 = k2;
+        
+        double frac = b - a;
+        if (fabs(frac) < EPS) break;
+        
+        b = 1.0 / frac;
+    }
+    
+    *out_p = h1;
+    *out_q = k1;
+}
+
 static status_t is_finite(double x, int base, bool *out_is_finite) {
     if (out_is_finite == NULL) return ERR_INVALID_ARGUMENTS;
     if (base < 2 || base > 36) return ERR_INVALID_BASE;
-    
     if (x <= 0.0 || x >= 1.0) return ERR_INVALID_VALUE;
 
-    const int MAX_ITER = 1100;
-    
-    double current = x;
-    for (int i = 0; i < MAX_ITER; i++) {
-        current *= (double)base;
-        
-        long long int_part = (long long)current;
-        double frac_part = current - (double)int_part;
-        
-        if (fabs(frac_part) < EPS) {
-            *out_is_finite = true;
-            return SUCCESS;
+    long long p, q;
+    get_fraction(x, &p, &q);
+
+    long long a = p, b = q;
+    while (b != 0) {
+        long long temp = b;
+        b = a % b;
+        a = temp;
+    }
+    q /= a;
+
+    for (int i = 2; i <= base && q > 1; i++) {
+        if (base % i == 0) {
+            while (q % i == 0) {
+                q /= i;
+            }
         }
-        
-        current = frac_part;
     }
 
-    *out_is_finite = false;
+    *out_is_finite = (q == 1);
     return SUCCESS;
 }
 
@@ -138,7 +165,7 @@ int main(void) {
         if (st == SUCCESS) {
             printf("1.5 -> %s\n", results[0] ? "finite" : "infinite");
         } else {
-            printf("Expected error: %s\n", status_msg(st));
+            printf("Error: %s\n", status_msg(st));
         }
         free(results);
     }

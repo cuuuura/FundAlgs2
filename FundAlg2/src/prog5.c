@@ -14,17 +14,6 @@ typedef enum {
     ERR_FORMAT
 } Status;
 
-static const char *status_msg(Status s) {
-    switch (s) {
-    case OK: return "ok";
-    case ERR_ARGS: return "invalid arguments";
-    case ERR_NULL: return "null pointer";
-    case ERR_MEMORY: return "memory allocation failed";
-    case ERR_FORMAT: return "invalid format string";
-    default: return "unknown error";
-    }
-}
-
 static Status append_char(char **buf, size_t *len, size_t *cap, char c) {
     if (*len + 1 >= *cap) {
         size_t new_cap = (*cap == 0) ? 64 : *cap * 2;
